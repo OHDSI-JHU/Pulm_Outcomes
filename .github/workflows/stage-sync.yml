@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   sync:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.issue.labels.*.name, 'stage:')
+    if: true
     runs-on: ubuntu-latest
     env:
       OWNER: ${{ github.repository_owner }}
