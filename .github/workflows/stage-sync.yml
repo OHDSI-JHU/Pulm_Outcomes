@@ -31,19 +31,28 @@ jobs:
       - name: Derive stage name from label
         id: stage
         run: |
-          LABELS='${{ toJson(github.event.issue.labels) }}'
-          echo "Issue labels: $LABELS"
-          
-          STAGE=$(echo "$LABELS" | jq -r '.[] | select(.name | startswith("stage:")) | .name | split(":")[1]' | head -1)
-          echo "Extracted stage: $STAGE"
-          
-          if [[ -z "$STAGE" || "$STAGE" == "null" ]]; then
-            echo "❌ No stage label found on issue"
-            exit 1
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # For manual testing, use a default stage
+            echo "Manual trigger detected, using default stage for testing"
+            STAGE="study-diagnostics"
+            NAME="Study Diagnostics"
+          else
+            # Normal issue-based trigger
+            LABELS='${{ toJson(github.event.issue.labels) }}'
+            echo "Issue labels: $LABELS"
+            
+            STAGE=$(echo "$LABELS" | jq -r '.[] | select(.name | startswith("stage:")) | .name | split(":")[1]' | head -1)
+            echo "Extracted stage: $STAGE"
+            
+            if [[ -z "$STAGE" || "$STAGE" == "null" ]]; then
+              echo "❌ No stage label found on issue"
+              exit 1
+            fi
+            
+            # Convert "protocol-development" -> "Protocol development"
+            NAME=$(echo "$STAGE" | sed 's/-/ /g' | awk '{for(i=1;i<=NF;i++){ $i=toupper(substr($i,1,1)) substr($i,2) }}1')
           fi
           
-          # Convert "protocol-development" -> "Protocol development"
-          NAME=$(echo "$STAGE" | sed 's/-/ /g' | awk '{for(i=1;i<=NF;i++){ $i=toupper(substr($i,1,1)) substr($i,2) }}1')
           echo "Stage name: $NAME"
           echo "name=$NAME" >> $GITHUB_OUTPUT
 
