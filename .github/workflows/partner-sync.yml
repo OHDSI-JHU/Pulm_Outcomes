@@ -1,36 +1,74 @@
 name: Partner Rollup → Factory
 on:
   issues:
-    types: [opened, edited, closed, reopened, labeled, unlabeled, assigned]
+    types: [opened, edited, closed, reopened, labeled, unlabeled, assigned, unassigned]
+
 permissions:
   contents: read
   issues: read
   projects: write
+
 jobs:
   sync:
-    if: contains(github.event.issue.labels.*.name, 'data-partner') || true
+    if: contains(github.event.issue.labels.*.name, 'data-partner')
     runs-on: ubuntu-latest
     env:
       OWNER: ${{ github.repository_owner }}
       REPO: ${{ github.repository }}
       FACTORY_NUMBER: ${{ vars.FACTORY_PROJECT_NUMBER }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
     steps:
+      - name: Check if FACTORY_PROJECT_NUMBER is set
+        run: |
+          if [[ -z "${{ vars.FACTORY_PROJECT_NUMBER }}" ]]; then
+            echo "❌ FACTORY_PROJECT_NUMBER repository variable is not set"
+            echo "Please set it in Settings → Variables"
+            exit 1
+          fi
+          echo "✅ Factory project number: ${{ vars.FACTORY_PROJECT_NUMBER }}"
+
+      - name: Add welcome comment on assignment
+        if: github.event.action == 'assigned'
+        run: |
+          assignee="${{ github.event.assignee.login }}"
+          lead="${{ vars.STUDY_LEAD_GH }}"
+          
+          if [[ -n "$assignee" ]]; then
+            welcome_msg="Welcome @${assignee}! You've been assigned to coordinate this data partner site. "
+            if [[ -n "$lead" ]]; then
+              welcome_msg+="The study lead is @${lead#@}. "
+            fi
+            welcome_msg+="Please use this issue to track progress and ask questions throughout the study lifecycle."
+            
+            gh issue comment ${{ github.event.issue.number }} --body "$welcome_msg"
+          fi
+        env:
+          GH_TOKEN: ${{ env.GH_TOKEN }}
+
       - name: Compute open partner list
         id: partners
         run: |
-          gh auth status || echo "Authed"
-          gh api repos/${{ env.REPO }}/issues --paginate -q '
-            map(select(.state=="open" and (.labels[].name? // "" | contains("data-partner")))) |
-            [ .[] | {title, number} ]' > partners.json
-          COUNT=$(jq 'length' partners.json)
-          CSV=$(jq -r '.[].title' partners.json | paste -sd "," -)
+          echo "🔍 Fetching open data-partner issues..."
+          
+          gh api repos/${{ env.REPO }}/issues \
+            --paginate \
+            --jq 'map(select(.state=="open" and (.labels[]?.name? // "" | contains("data-partner"))))' \
+            > open_partners.json
+          
+          # Extract titles and count
+          COUNT=$(jq 'length' open_partners.json)
+          CSV=$(jq -r '.[].title' open_partners.json | sed 's/^Data Partner: //' | paste -sd "," -)
+          
+          echo "Found $COUNT open data partner issues"
+          echo "Partner sites: $CSV"
+          
           echo "count=$COUNT" >> $GITHUB_OUTPUT
           echo "csv=$CSV" >> $GITHUB_OUTPUT
         env:
           GH_TOKEN: ${{ env.GH_TOKEN }}
 
-      - name: Upsert Partner fields on Factory item
+      - name: Update Factory partner fields
         uses: actions/github-script@v7
         env:
           PARTNER_COUNT: ${{ steps.partners.outputs.count }}
@@ -39,56 +77,153 @@ jobs:
           github-token: ${{ env.GH_TOKEN }}
           script: |
             const factoryNumber = parseInt(process.env.FACTORY_NUMBER, 10);
-            if (!factoryNumber) core.setFailed("FACTORY_PROJECT_NUMBER repo variable is required");
             const [owner, repo] = process.env.REPO.split("/");
-            const q = await github.graphql(`
-              query($login:String!, $num:Int!){
-                user(login:$login){
-                  projectV2(number:$num){
-                    id
-                    fields(first:50){ nodes{
-                      ... on ProjectV2FieldCommon { id name }
-                    }}
-                    items(first:200){ nodes{
+            const repoUrl = `https://github.com/${owner}/${repo}`;
+            const partnerCount = parseInt(process.env.PARTNER_COUNT, 10);
+            const partnerCsv = process.env.PARTNER_CSV || "";
+            
+            console.log(`Updating Factory project ${factoryNumber}`);
+            console.log(`Partner count: ${partnerCount}`);
+            console.log(`Partner sites: ${partnerCsv}`);
+            
+            try {
+              // Query Factory project
+              const query = `
+                query($login: String!, $num: Int!) {
+                  user(login: $login) {
+                    projectV2(number: $num) {
                       id
-                      fieldValues(first:50){ nodes{
-                        ... on ProjectV2ItemFieldTextValue { text field { name id } }
-                      }}
-                    }}
+                      fields(first: 50) {
+                        nodes {
+                          ... on ProjectV2FieldCommon { id name }
+                        }
+                      }
+                      items(first: 200) {
+                        nodes {
+                          id
+                          fieldValues(first: 50) {
+                            nodes {
+                              ... on ProjectV2ItemFieldTextValue { 
+                                text 
+                                field { name id }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
                   }
                 }
-              }`, { login: owner, num: factoryNumber }
-            );
-            const proj = q.user.projectV2;
-            const fields = Object.fromEntries(proj.fields.nodes.map(f=>[f.name,f]));
-            const fRepo = fields["Repo"], fSites = fields["Partner Sites"], fCount = fields["Partner Count"];
-            if (!fRepo || !fSites || !fCount) core.setFailed("Factory must have fields: Repo (text), Partner Sites (text), Partner Count (number)");
-            const repoUrl = `https://github.com/${owner}/${repo}`;
-            let item = proj.items.nodes.find(n => n.fieldValues.nodes.some(v => v.field?.name==="Repo" && (v.text===repoUrl || v.text===`${owner}/${repo}`)));
-            if (!item){
-              const crt = await github.graphql(`
-                mutation($projectId:ID!, $title:String!){
-                  createProjectV2DraftIssue(input:{projectId:$projectId, title:$title}){ projectItem { id } }
-                }`, { projectId: proj.id, title: `${repo}` }
-              );
-              item = crt.createProjectV2DraftIssue.projectItem;
-              await github.graphql(`
-                mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $val:String!){
-                  updateProjectV2ItemFieldValue(input:{projectId:$projectId, itemId:$itemId, fieldId:$fieldId, value:{text:$val}}){ projectV2Item { id } }
-                }`, { projectId: proj.id, itemId: item.id, fieldId: fRepo.id, val: repoUrl }
-              );
-            }
-            // Update Partner Sites (text) & Partner Count (number)
-            await github.graphql(`
-              mutation UpdatePartners($projectId:ID!, $itemId:ID!, $sitesField:ID!, $sitesVal:String!, $countField:ID!, $countVal:Float!){
-                a:updateProjectV2ItemFieldValue(input:{projectId:$projectId, itemId:$itemId, fieldId:$sitesField, value:{text:$sitesVal}}){ projectV2Item { id } }
-                b:updateProjectV2ItemFieldValue(input:{projectId:$projectId, itemId:$itemId, fieldId:$countField, value:{number:$countVal}}){ projectV2Item { id } }
-              }`, {
-                projectId: proj.id,
-                itemId: item.id,
-                sitesField: fields["Partner Sites"].id,
-                sitesVal: process.env.PARTNER_CSV || "",
-                countField: fields["Partner Count"].id,
-                countVal: parseFloat(process.env.PARTNER_COUNT || "0")
+              `;
+              
+              const result = await github.graphql(query, {
+                login: owner,
+                num: factoryNumber
+              });
+              
+              const project = result.user.projectV2;
+              if (!project) {
+                core.setFailed(`Factory project ${factoryNumber} not found for user ${owner}`);
+                return;
               }
-            );
+              
+              const fields = Object.fromEntries(project.fields.nodes.map(f => [f.name, f]));
+              const repoField = fields["Repo"];
+              const sitesField = fields["Partner Sites"];
+              const countField = fields["Partner Count"];
+              
+              if (!repoField || !sitesField || !countField) {
+                core.setFailed("Factory must have fields: Repo (text), Partner Sites (text), Partner Count (number)");
+                return;
+              }
+              
+              // Find item by Repo field
+              let item = project.items.nodes.find(n =>
+                n.fieldValues.nodes.some(v => 
+                  v.field?.name === "Repo" && 
+                  (v.text === repoUrl || v.text === `${owner}/${repo}`)
+                )
+              );
+              
+              if (!item) {
+                console.log("Creating new Factory item...");
+                const createResult = await github.graphql(`
+                  mutation($projectId: ID!, $title: String!) {
+                    createProjectV2DraftIssue(input: {
+                      projectId: $projectId, 
+                      title: $title
+                    }) {
+                      projectItem { id }
+                    }
+                  }
+                `, {
+                  projectId: project.id,
+                  title: repo
+                });
+                
+                item = createResult.createProjectV2DraftIssue.projectItem;
+                
+                // Set Repo field
+                await github.graphql(`
+                  mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $val: String!) {
+                    updateProjectV2ItemFieldValue(input: {
+                      projectId: $projectId,
+                      itemId: $itemId,
+                      fieldId: $fieldId,
+                      value: { text: $val }
+                    }) {
+                      projectV2Item { id }
+                    }
+                  }
+                `, {
+                  projectId: project.id,
+                  itemId: item.id,
+                  fieldId: repoField.id,
+                  val: repoUrl
+                });
+              }
+              
+              // Update Partner Sites (text)
+              await github.graphql(`
+                mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $val: String!) {
+                  updateProjectV2ItemFieldValue(input: {
+                    projectId: $projectId,
+                    itemId: $itemId,
+                    fieldId: $fieldId,
+                    value: { text: $val }
+                  }) {
+                    projectV2Item { id }
+                  }
+                }
+              `, {
+                projectId: project.id,
+                itemId: item.id,
+                fieldId: sitesField.id,
+                val: partnerCsv
+              });
+              
+              // Update Partner Count (number)
+              await github.graphql(`
+                mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $val: Float!) {
+                  updateProjectV2ItemFieldValue(input: {
+                    projectId: $projectId,
+                    itemId: $itemId,
+                    fieldId: $fieldId,
+                    value: { number: $val }
+                  }) {
+                    projectV2Item { id }
+                  }
+                }
+              `, {
+                projectId: project.id,
+                itemId: item.id,
+                fieldId: countField.id,
+                val: partnerCount
+              });
+              
+              console.log(`✅ Updated Factory: ${partnerCount} partners (${partnerCsv})`);
+              
+            } catch (error) {
+              console.error('Error updating Factory:', error);
+              core.setFailed(`Failed to update Factory: ${error.message}`);
+            }
