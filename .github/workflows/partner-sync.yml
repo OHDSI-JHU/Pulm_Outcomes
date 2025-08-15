@@ -152,19 +152,19 @@ jobs:
               }
               
               const fields = Object.fromEntries(project.fields.nodes.map(f => [f.name, f]));
-              const repoField = fields["Repo"];
+              const repoField = fields["Study Repo"];
               const sitesField = fields["Partner Sites"];
               const countField = fields["Partner Count"];
               
               if (!repoField || !sitesField || !countField) {
-                core.setFailed("Factory must have fields: Repo (text), Partner Sites (text), Partner Count (number)");
+                core.setFailed("Factory must have fields: Study Repo (text), Partner Sites (text), Partner Count (number)");
                 return;
               }
               
               // Find item by Repo field
               let item = project.items.nodes.find(n =>
                 n.fieldValues.nodes.some(v => 
-                  v.field?.name === "Repo" && 
+                  v.field?.name === "Study Repo" && 
                   (v.text === repoUrl || v.text === `${owner}/${repo}`)
                 )
               );
