@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   sync:
-    if: contains(github.event.issue.labels.*.name, 'data-partner')
+    if: contains(github.event.issue.labels.*.name, 'data-partner')  && false
     runs-on: ubuntu-latest
     env:
       OWNER: ${{ github.repository_owner }}
