@@ -6,7 +6,6 @@ on:
 permissions:
   contents: read
   issues: read
-  pull-requests: read
 
 jobs:
   sync:
@@ -16,7 +15,7 @@ jobs:
       OWNER: ${{ github.repository_owner }}
       REPO: ${{ github.repository }}
       FACTORY_NUMBER: ${{ vars.FACTORY_PROJECT_NUMBER }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
     
     steps:
       - name: Check if FACTORY_PROJECT_NUMBER is set
@@ -47,7 +46,7 @@ jobs:
           echo "Stage name: $NAME"
           echo "name=$NAME" >> $GITHUB_OUTPUT
 
-      - name: Update Factory item
+      - name: Update Factory stage field
         uses: actions/github-script@v7
         with:
           github-token: ${{ env.GH_TOKEN }}
@@ -70,21 +69,46 @@ jobs:
                       id
                       fields(first: 50) {
                         nodes {
-                          ... on ProjectV2Field { id name }
-                          ... on ProjectV2SingleSelectField { 
-                            id name 
-                            options { id name }
+                          ... on ProjectV2Field {
+                            id
+                            name
+                          }
+                          ... on ProjectV2IterationField {
+                            id
+                            name
+                          }
+                          ... on ProjectV2SingleSelectField {
+                            id
+                            name
+                            options {
+                              id
+                              name
+                            }
                           }
                         }
                       }
-                      items(first: 200) {
+                      items(first: 100) {
                         nodes {
                           id
                           fieldValues(first: 50) {
                             nodes {
                               ... on ProjectV2ItemFieldTextValue { 
                                 text 
-                                field { name id }
+                                field { 
+                                  ... on ProjectV2Field { 
+                                    id
+                                    name 
+                                  }
+                                }
+                              }
+                              ... on ProjectV2ItemFieldSingleSelectValue {
+                                name
+                                field {
+                                  ... on ProjectV2Field {
+                                    id
+                                    name
+                                  }
+                                }
                               }
                             }
                           }
@@ -108,17 +132,21 @@ jobs:
               
               const fields = Object.fromEntries(project.fields.nodes.map(f => [f.name, f]));
               const stageField = fields["Stage"];
-              const repoField = fields["Repo"];
+              const repoField = fields["Study Repo"];
               
               if (!stageField || !repoField) {
-                core.setFailed("Factory must have fields: Stage (single-select), Repo (text)");
+                core.setFailed("Factory must have fields: Stage (single-select), Study Repo (text)");
                 return;
               }
               
-              // Find item by Repo field
+              console.log('Looking for existing Factory item...');
+              console.log('Repository URL:', repoUrl);
+              console.log('Available items:', project.items.nodes.length);
+              
+              // Find item by Study Repo field
               let item = project.items.nodes.find(n =>
                 n.fieldValues.nodes.some(v => 
-                  v.field?.name === "Repo" && 
+                  v.field?.name === "Study Repo" && 
                   (v.text === repoUrl || v.text === `${owner}/${repo}`)
                 )
               );
@@ -127,8 +155,8 @@ jobs:
                 console.log("Creating new Factory item...");
                 const createResult = await github.graphql(`
                   mutation($projectId: ID!, $title: String!) {
-                    createProjectV2DraftIssue(input: {
-                      projectId: $projectId, 
+                    addProjectV2DraftIssue(input: {
+                      projectId: $projectId,
                       title: $title
                     }) {
                       projectItem { id }
@@ -139,9 +167,9 @@ jobs:
                   title: repo
                 });
                 
-                item = createResult.createProjectV2DraftIssue.projectItem;
+                item = createResult.addProjectV2DraftIssue.projectItem;
                 
-                // Set Repo field
+                // Set Study Repo field
                 await github.graphql(`
                   mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $val: String!) {
                     updateProjectV2ItemFieldValue(input: {

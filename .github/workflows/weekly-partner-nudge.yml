@@ -12,7 +12,7 @@ jobs:
   nudge:
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
       NUDGE_DAY: ${{ vars.NUDGE_DAY || 'Mon' }}
       NUDGE_HOUR_LOCAL: ${{ vars.NUDGE_HOUR_LOCAL || '9' }}
       NUDGE_TZ: ${{ vars.NUDGE_TZ || 'America/New_York' }}
