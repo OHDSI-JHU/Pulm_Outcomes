@@ -70,7 +70,7 @@ jobs:
                       id
                       fields(first: 50) {
                         nodes {
-                          ... on ProjectV2FieldCommon { id name }
+                          ... on ProjectV2Field { id name }
                           ... on ProjectV2SingleSelectField { 
                             id name 
                             options { id name }
