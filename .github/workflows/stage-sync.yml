@@ -49,8 +49,43 @@ jobs:
               exit 1
             fi
             
-            # Convert "protocol-development" -> "Protocol development"
-            NAME=$(echo "$STAGE" | sed 's/-/ /g' | awk '{for(i=1;i<=NF;i++){ $i=toupper(substr($i,1,1)) substr($i,2) }}1')
+            # Define stage progression
+            case "$STAGE" in
+              "initiation")
+                NAME="Protocol development"  # Advance to next stage
+                ;;
+              "protocol-development")
+                NAME="Data diagnostics"
+                ;;
+              "data-diagnostics")
+                NAME="Phenotype development"
+                ;;
+              "phenotype-development")
+                NAME="Phenotype evaluation"
+                ;;
+              "phenotype-evaluation")
+                NAME="Analysis specifications"
+                ;;
+              "analysis-specifications")
+                NAME="Network execution"
+                ;;
+              "network-execution")
+                NAME="Study diagnostics"
+                ;;
+              "study-diagnostics")
+                NAME="Evidence synthesis"
+                ;;
+              "evidence-synthesis")
+                NAME="Results evaluation"
+                ;;
+              "results-evaluation")
+                NAME="Complete"  # Final stage
+                ;;
+              *)
+                # Fallback: Convert "protocol-development" -> "Protocol development"
+                NAME=$(echo "$STAGE" | sed 's/-/ /g' | awk '{for(i=1;i<=NF;i++){ $i=toupper(substr($i,1,1)) substr($i,2) }}1')
+                ;;
+            esac
           fi
           
           echo "Stage name: $NAME"
