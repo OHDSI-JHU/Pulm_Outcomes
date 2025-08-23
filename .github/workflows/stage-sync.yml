@@ -142,10 +142,10 @@ jobs:
               
               const fields = Object.fromEntries(project.fields.nodes.map(f => [f.name, f]));
               const stageField = fields["Stage"];
-              const repoField = fields["Study Repo"];
+              const repoField = fields["Study Repo"] || fields["Repo"];
               
               if (!stageField || !repoField) {
-                core.setFailed("Factory must have fields: Stage (single-select), Study Repo (text)");
+                core.setFailed("Factory must have fields: Stage (single-select), Study Repo or Repo (text)");
                 return;
               }
               
@@ -153,10 +153,10 @@ jobs:
               console.log('Repository URL:', repoUrl);
               console.log('Available items:', project.items.nodes.length);
               
-              // Find item by Study Repo field
+              // Find item by Repo field (handle both "Study Repo" and "Repo")
               let item = project.items.nodes.find(n =>
                 n.fieldValues.nodes.some(v => 
-                  v.field?.name === "Study Repo" && 
+                  (v.field?.name === "Study Repo" || v.field?.name === "Repo") && 
                   (v.text === repoUrl || v.text === `${owner}/${repo}`)
                 )
               );
