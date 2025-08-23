@@ -199,12 +199,16 @@ jobs:
                 });
               }
               
-              // Find stage option
-              const stageOption = stageField.options?.find(o => o.name === stageName);
+              // Find stage option (try exact match first, then case-insensitive)
+              let stageOption = stageField.options?.find(o => o.name === stageName);
+              if (!stageOption) {
+                stageOption = stageField.options?.find(o => o.name.toLowerCase() === stageName.toLowerCase());
+              }
               if (!stageOption) {
                 core.setFailed(`No Stage option named '${stageName}' found in Factory. Available options: ${stageField.options?.map(o => o.name).join(', ')}`);
                 return;
               }
+              console.log(`Matched stage '${stageName}' to option '${stageOption.name}'`);
               
               // Update Stage field
               await github.graphql(`
