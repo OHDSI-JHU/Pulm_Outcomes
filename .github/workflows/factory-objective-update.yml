@@ -1,10 +1,15 @@
 name: Update Factory Objective
 
-# Triggers when status-tracking issues are closed in study repositories
+# Triggers when status-tracking issues are modified or closed in study repositories
 # Updates the corresponding Factory issue's Objective field to the next milestone
 on:
   issues:
-    types: [closed]
+    types: [closed, reopened, edited, labeled, unlabeled]
+  issue_comment:
+    types: [created, edited]
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"  # Every 15 minutes to catch project status changes
 
 permissions:
   contents: read
@@ -14,7 +19,7 @@ permissions:
 jobs:
   update-factory-objective:
     runs-on: ubuntu-latest
-    if: contains(github.event.issue.labels.*.name, 'status-tracking')
+    # Skip condition check - we'll check inside the workflow
     steps:
       - name: Check for required secret
         run: |
@@ -33,35 +38,47 @@ jobs:
         with:
           github-token: ${{ secrets.ORG_ADMIN_TOKEN }}
           script: |
-            const issueTitle = "${{ github.event.issue.title }}";
-            const issueUrl = "${{ github.event.issue.html_url }}";
-            const issueAction = "${{ github.event.action }}";
             const studyRepo = "${{ github.repository }}";
             
-            console.log(`Processing issue: ${issueTitle}`);
-            console.log(`Action: ${issueAction}`);
-            console.log(`Study repo: ${studyRepo}`);
+            console.log(`Analyzing status-tracking issues in: ${studyRepo}`);
+            console.log(`Trigger: ${{ github.event_name }}`);
             
             try {
-              // Extract factory issue number from study repo issue body
-              const issue = await github.rest.issues.get({
+              // Get all status-tracking issues in this repository
+              const statusIssues = await github.rest.issues.listForRepo({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: context.issue.number
+                labels: 'status-tracking',
+                state: 'all',
+                per_page: 100
               });
               
-              // More flexible regex to match Factory links
-              const factoryLinkMatch = issue.data.body.match(/https:\/\/github\.com\/([^\/]+)\/Factory\/issues\/(\d+)/i);
+              console.log(`Found ${statusIssues.data.length} status-tracking issues`);
               
-              if (!factoryLinkMatch) {
-                console.log('❌ Could not find Factory issue link in issue body');
-                console.log('Looking for pattern: https://github.com/{owner}/Factory/issues/{number}');
-                console.log('Issue body:', issue.data.body.substring(0, 500) + '...');
+              if (statusIssues.data.length === 0) {
+                console.log('❌ No status-tracking issues found in this repository');
                 return;
               }
               
-              const factoryOwner = factoryLinkMatch[1];
-              const factoryIssueNumber = factoryLinkMatch[2];
+              // Find Factory issue link from any status issue
+              let factoryOwner = null;
+              let factoryIssueNumber = null;
+              
+              for (const issue of statusIssues.data) {
+                const factoryLinkMatch = issue.body?.match(/https:\/\/github\.com\/([^\/]+)\/Factory\/issues\/(\d+)/i);
+                if (factoryLinkMatch) {
+                  factoryOwner = factoryLinkMatch[1];
+                  factoryIssueNumber = factoryLinkMatch[2];
+                  break;
+                }
+              }
+              
+              if (!factoryOwner || !factoryIssueNumber) {
+                console.log('❌ Could not find Factory issue link in any status-tracking issue');
+                console.log('Looking for pattern: https://github.com/{owner}/Factory/issues/{number}');
+                return;
+              }
+              
               console.log(`Found Factory issue: ${factoryOwner}/Factory#${factoryIssueNumber}`);
               
               // Load objective mapping configuration from Factory repo
@@ -74,21 +91,29 @@ jobs:
               const configContent = Buffer.from(configResponse.data.content, 'base64').toString('utf-8');
               const config = JSON.parse(configContent);
               
-              // Find the current issue's objective and order
-              const currentIssue = config.issues.find(issue => issue.title === issueTitle);
-              if (!currentIssue) {
-                console.log(`❌ Issue title '${issueTitle}' not found in configuration`);
-                console.log('Available issue titles:', config.issues.map(i => i.title).join(', '));
-                return;
+              // Determine current objective based on which issues are closed
+              // Sort issues by order and find the highest order completed issue
+              const sortedIssues = config.issues.sort((a, b) => a.order - b.order);
+              let currentObjective = sortedIssues[0].factory_objective; // Default to first objective
+              
+              for (const configIssue of sortedIssues) {
+                const matchingIssue = statusIssues.data.find(issue => 
+                  issue.title === configIssue.title || 
+                  issue.title.includes(configIssue.factory_objective)
+                );
+                
+                if (matchingIssue && matchingIssue.state === 'closed') {
+                  // Find the next objective after this closed issue
+                  const nextConfigIssue = sortedIssues.find(ci => ci.order === configIssue.order + 1);
+                  currentObjective = nextConfigIssue ? nextConfigIssue.factory_objective : 'Complete';
+                } else if (matchingIssue && matchingIssue.state === 'open') {
+                  // This issue is still open, so we're still on this objective
+                  currentObjective = configIssue.factory_objective;
+                  break;
+                }
               }
               
-              // Issue closed -> set Factory objective to next issue's objective
-              const nextOrder = currentIssue.order + 1;
-              const nextIssue = config.issues.find(issue => issue.order === nextOrder);
-              
-              const newObjective = nextIssue ? nextIssue.factory_objective : 'Complete';
-              
-              console.log(`New objective: ${newObjective}`);
+              console.log(`Determined objective: ${currentObjective}`);
               
               // Get Factory issue to find its node_id
               const factoryIssue = await github.rest.issues.get({
@@ -99,22 +124,26 @@ jobs:
               
               const issueNodeId = factoryIssue.data.node_id;
               
-              // Get the Factory Portfolio project
-              const orgProjects = await github.graphql(`
-                query($org: String!) {
-                  organization(login: $org) {
-                    projectsV2(first: 10) {
-                      nodes {
-                        id
-                        title
-                        fields(first: 20) {
-                          nodes {
-                            ... on ProjectV2SingleSelectField {
-                              id
-                              name
-                              options {
+              // Look for Factory Portfolio project first in organization, then user
+              let portfolioProject = null;
+              
+              try {
+                const orgProjects = await github.graphql(`
+                  query($org: String!) {
+                    organization(login: $org) {
+                      projectsV2(first: 20) {
+                        nodes {
+                          id
+                          title
+                          fields(first: 20) {
+                            nodes {
+                              ... on ProjectV2SingleSelectField {
                                 id
                                 name
+                                options {
+                                  id
+                                  name
+                                }
                               }
                             }
                           }
@@ -122,19 +151,53 @@ jobs:
                       }
                     }
                   }
-                }
-              `, { org: factoryOwner });
+                `, { org: factoryOwner });
+                
+                portfolioProject = orgProjects.organization.projectsV2.nodes.find(
+                  project => project.title.includes('Factory') || project.title.includes('Portfolio')
+                );
+              } catch (orgError) {
+                console.log('Organization query failed, trying user projects...');
+              }
               
-              // Find the Factory Portfolio project
-              const portfolioProject = orgProjects.organization.projectsV2.nodes.find(
-                project => project.title === 'Factory Portfolio'
-              );
+              if (!portfolioProject) {
+                const userProjects = await github.graphql(`
+                  query($login: String!) {
+                    user(login: $login) {
+                      projectsV2(first: 20) {
+                        nodes {
+                          id
+                          title
+                          fields(first: 20) {
+                            nodes {
+                              ... on ProjectV2SingleSelectField {
+                                id
+                                name
+                                options {
+                                  id
+                                  name
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                `, { login: factoryOwner });
+                
+                portfolioProject = userProjects.user.projectsV2.nodes.find(
+                  project => project.title.includes('Factory') || project.title.includes('Portfolio')
+                );
+              }
               
               if (!portfolioProject) {
                 console.log('❌ Factory Portfolio project not found');
-                console.log('Available projects:', orgProjects.organization.projectsV2.nodes.map(p => p.title).join(', '));
+                console.log('Available projects in organization and user account searched');
                 return;
               }
+              
+              console.log(`Found project: ${portfolioProject.title}`);
               
               // Find the Objective field
               const objectiveField = portfolioProject.fields.nodes.find(
@@ -149,26 +212,28 @@ jobs:
               
               // Find the objective option
               const objectiveOption = objectiveField.options.find(
-                option => option.name === newObjective
+                option => option.name === currentObjective
               );
               
               if (!objectiveOption) {
-                console.log(`❌ Objective option '${newObjective}' not found`);
+                console.log(`❌ Objective option '${currentObjective}' not found`);
                 console.log('Available options:', objectiveField.options.map(o => o.name).join(', '));
                 return;
               }
               
               // Get the project item for this issue
               const projectItems = await github.graphql(`
-                query($projectId: ID!, $issueNodeId: ID!) {
+                query($projectId: ID!) {
                   node(id: $projectId) {
                     ... on ProjectV2 {
-                      items(first: 100) {
+                      items(first: 200) {
                         nodes {
                           id
                           content {
                             ... on Issue {
                               id
+                              number
+                              title
                             }
                           }
                         }
@@ -177,8 +242,7 @@ jobs:
                   }
                 }
               `, {
-                projectId: portfolioProject.id,
-                issueNodeId: issueNodeId
+                projectId: portfolioProject.id
               });
               
               const projectItem = projectItems.node.items.nodes.find(
@@ -189,6 +253,7 @@ jobs:
                 console.log(`❌ Factory issue not found in Factory Portfolio project`);
                 console.log(`Issue node ID: ${issueNodeId}`);
                 console.log(`Project items found: ${projectItems.node.items.nodes.length}`);
+                console.log(`Looking for issue #${factoryIssueNumber}`);
                 return;
               }
               
@@ -214,7 +279,10 @@ jobs:
               });
               
               // Add a comment to the Factory issue
-              const commentBody = `🎯 **Objective Updated:** ${newObjective}\n\nStudy milestone completed in [${studyRepo}](https://github.com/${studyRepo}):\n- Closed: [${issueTitle}](${issueUrl})\n\nObjective field updated automatically by the study tracking system.`;
+              const closedIssues = statusIssues.data.filter(issue => issue.state === 'closed');
+              const openIssues = statusIssues.data.filter(issue => issue.state === 'open');
+              
+              const commentBody = `🎯 **Objective Updated:** ${currentObjective}\n\n**Study Progress Update from [${studyRepo}](https://github.com/${studyRepo}):**\n- Completed milestones: ${closedIssues.length}/${statusIssues.data.length}\n- Current objective: ${currentObjective}\n\n_Objective field updated automatically by the study tracking system._`;
               
               await github.rest.issues.createComment({
                 owner: factoryOwner,
@@ -223,7 +291,7 @@ jobs:
                 body: commentBody
               });
               
-              console.log(`✅ Successfully updated Factory issue #${factoryIssueNumber} Objective to: ${newObjective}`);
+              console.log(`✅ Successfully updated Factory issue #${factoryIssueNumber} Objective to: ${currentObjective}`);
               
             } catch (error) {
               console.error('Error updating Factory Objective:', error);
