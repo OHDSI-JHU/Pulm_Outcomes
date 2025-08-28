@@ -9,7 +9,7 @@ on:
     types: [created, edited]
   workflow_dispatch:
   schedule:
-    - cron: "*/15 * * * *"  # Every 15 minutes to catch project status changes
+    - cron: "0 6 * * *"  # Daily at 6 AM UTC
 
 permissions:
   contents: read
@@ -19,7 +19,6 @@ permissions:
 jobs:
   update-factory-objective:
     runs-on: ubuntu-latest
-    # Skip condition check - we'll check inside the workflow
     steps:
       - name: Check for required secret
         run: |
@@ -92,7 +91,6 @@ jobs:
               const config = JSON.parse(configContent);
               
               // Determine current objective based on which issues are closed
-              // Sort issues by order and find the highest order completed issue
               const sortedIssues = config.issues.sort((a, b) => a.order - b.order);
               let currentObjective = sortedIssues[0].factory_objective; // Default to first objective
               
@@ -124,25 +122,117 @@ jobs:
               
               const issueNodeId = factoryIssue.data.node_id;
               
-              // Look for Factory Portfolio project first in organization, then user
+              // Get Factory project using URL (preferred method)
               let portfolioProject = null;
+              const factoryProjectUrl = "${{ vars.FACTORY_PROJECT_URL }}";
               
-              try {
-                const orgProjects = await github.graphql(`
-                  query($org: String!) {
-                    organization(login: $org) {
-                      projectsV2(first: 20) {
-                        nodes {
-                          id
-                          title
-                          fields(first: 20) {
-                            nodes {
-                              ... on ProjectV2SingleSelectField {
-                                id
-                                name
-                                options {
+              if (factoryProjectUrl) {
+                console.log(`Using Factory project URL: ${factoryProjectUrl}`);
+                
+                // Parse project URL to get owner and project number
+                // Supports: https://github.com/orgs/owner/projects/1 or https://github.com/users/owner/projects/1
+                const urlMatch = factoryProjectUrl.match(/github\.com\/(?:orgs|users)\/([^\/]+)\/projects\/(\d+)/);
+                
+                if (urlMatch) {
+                  const projectOwner = urlMatch[1];
+                  const projectNumber = parseInt(urlMatch[2]);
+                  
+                  console.log(`Parsed project: owner=${projectOwner}, number=${projectNumber}`);
+                  
+                  try {
+                    // Try organization first
+                    const orgProjectQuery = `
+                      query($login: String!, $num: Int!) {
+                        organization(login: $login) {
+                          projectV2(number: $num) {
+                            id
+                            title
+                            fields(first: 20) {
+                              nodes {
+                                ... on ProjectV2SingleSelectField {
                                   id
                                   name
+                                  options {
+                                    id
+                                    name
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    `;
+                    
+                    const orgResult = await github.graphql(orgProjectQuery, {
+                      login: projectOwner,
+                      num: projectNumber
+                    });
+                    
+                    portfolioProject = orgResult.organization?.projectV2;
+                    
+                  } catch (orgError) {
+                    console.log('Organization query failed, trying user projects...');
+                    
+                    // Try user projects
+                    const userProjectQuery = `
+                      query($login: String!, $num: Int!) {
+                        user(login: $login) {
+                          projectV2(number: $num) {
+                            id
+                            title
+                            fields(first: 20) {
+                              nodes {
+                                ... on ProjectV2SingleSelectField {
+                                  id
+                                  name
+                                  options {
+                                    id
+                                    name
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    `;
+                    
+                    const userResult = await github.graphql(userProjectQuery, {
+                      login: projectOwner,
+                      num: projectNumber
+                    });
+                    
+                    portfolioProject = userResult.user?.projectV2;
+                  }
+                } else {
+                  console.log('⚠️ Invalid Factory project URL format');
+                }
+              } else {
+                console.log('⚠️ FACTORY_PROJECT_URL variable not set, falling back to search');
+              }
+              
+              // Fallback to search method if URL method failed
+              if (!portfolioProject) {
+                console.log('🔍 Using fallback search method...');
+                
+                try {
+                  const orgProjects = await github.graphql(`
+                    query($org: String!) {
+                      organization(login: $org) {
+                        projectsV2(first: 20) {
+                          nodes {
+                            id
+                            title
+                            fields(first: 20) {
+                              nodes {
+                                ... on ProjectV2SingleSelectField {
+                                  id
+                                  name
+                                  options {
+                                    id
+                                    name
+                                  }
                                 }
                               }
                             }
@@ -150,50 +240,27 @@ jobs:
                         }
                       }
                     }
-                  }
-                `, { org: factoryOwner });
-                
-                portfolioProject = orgProjects.organization.projectsV2.nodes.find(
-                  project => project.title.includes('Factory') || project.title.includes('Portfolio')
-                );
-              } catch (orgError) {
-                console.log('Organization query failed, trying user projects...');
-              }
-              
-              if (!portfolioProject) {
-                const userProjects = await github.graphql(`
-                  query($login: String!) {
-                    user(login: $login) {
-                      projectsV2(first: 20) {
-                        nodes {
-                          id
-                          title
-                          fields(first: 20) {
-                            nodes {
-                              ... on ProjectV2SingleSelectField {
-                                id
-                                name
-                                options {
-                                  id
-                                  name
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
+                  `, { org: factoryOwner });
+                  
+                  // Find project with Objective field
+                  for (const project of orgProjects.organization.projectsV2.nodes) {
+                    const hasObjectiveField = project.fields.nodes.some(field => field.name === 'Objective');
+                    if (hasObjectiveField) {
+                      console.log(`Found project with Objective field: ${project.title}`);
+                      portfolioProject = project;
+                      break;
                     }
                   }
-                `, { login: factoryOwner });
-                
-                portfolioProject = userProjects.user.projectsV2.nodes.find(
-                  project => project.title.includes('Factory') || project.title.includes('Portfolio')
-                );
+                  
+                } catch (searchError) {
+                  console.log('Organization search failed');
+                }
               }
               
               if (!portfolioProject) {
-                console.log('❌ Factory Portfolio project not found');
-                console.log('Available projects in organization and user account searched');
+                console.log('❌ Factory project not found');
+                console.log('Please set FACTORY_PROJECT_URL variable in this repository');
+                console.log('Example: https://github.com/orgs/yourorg/projects/1');
                 return;
               }
               
@@ -205,7 +272,7 @@ jobs:
               );
               
               if (!objectiveField) {
-                console.log('❌ Objective field not found in Factory Portfolio project');
+                console.log('❌ Objective field not found in project');
                 console.log('Available fields:', portfolioProject.fields.nodes.map(f => f.name).join(', '));
                 return;
               }
@@ -221,7 +288,7 @@ jobs:
                 return;
               }
               
-              // Get the project item for this issue
+              // Get the project item for the Factory issue
               const projectItems = await github.graphql(`
                 query($projectId: ID!) {
                   node(id: $projectId) {
@@ -250,9 +317,8 @@ jobs:
               );
               
               if (!projectItem) {
-                console.log(`❌ Factory issue not found in Factory Portfolio project`);
+                console.log(`❌ Factory issue not found in project`);
                 console.log(`Issue node ID: ${issueNodeId}`);
-                console.log(`Project items found: ${projectItems.node.items.nodes.length}`);
                 console.log(`Looking for issue #${factoryIssueNumber}`);
                 return;
               }
@@ -280,7 +346,6 @@ jobs:
               
               // Add a comment to the Factory issue
               const closedIssues = statusIssues.data.filter(issue => issue.state === 'closed');
-              const openIssues = statusIssues.data.filter(issue => issue.state === 'open');
               
               const commentBody = `🎯 **Objective Updated:** ${currentObjective}\n\n**Study Progress Update from [${studyRepo}](https://github.com/${studyRepo}):**\n- Completed milestones: ${closedIssues.length}/${statusIssues.data.length}\n- Current objective: ${currentObjective}\n\n_Objective field updated automatically by the study tracking system._`;
               
