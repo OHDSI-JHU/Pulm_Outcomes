@@ -15,6 +15,7 @@ permissions:
   contents: read
   issues: write
   repository-projects: write
+  projects: write
 
 jobs:
   manage-data-partners:

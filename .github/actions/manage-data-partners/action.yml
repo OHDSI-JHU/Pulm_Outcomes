@@ -213,6 +213,83 @@ runs:
                   const itemId = addResult.addProjectV2ItemById.item.id;
                   console.log(`   ✅ Added to project successfully (Item ID: ${itemId})`);
                   
+                  // Set the Data Partner Status field to "Preparation"
+                  try {
+                    console.log(`   🔄 Setting Data Partner Status field to "Preparation"`);
+                    
+                    // First, get the project fields to find the Data Partner Status field ID
+                    const projectFields = await github.graphql(`
+                      query($projectId: ID!) {
+                        node(id: $projectId) {
+                          ... on ProjectV2 {
+                            fields(first: 20) {
+                              nodes {
+                                ... on ProjectV2Field {
+                                  id
+                                  name
+                                }
+                                ... on ProjectV2SingleSelectField {
+                                  id
+                                  name
+                                  options {
+                                    id
+                                    name
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    `, {
+                      projectId: studyProjectId
+                    });
+                    
+                    // Find the Data Partner Status field
+                    const statusField = projectFields.node.fields.nodes.find(field => 
+                      field.name === 'Data Partner Status'
+                    );
+                    
+                    if (statusField) {
+                      // Find the "Preparation" option
+                      const preparationOption = statusField.options?.find(option => 
+                        option.name === 'Preparation'
+                      );
+                      
+                      if (preparationOption) {
+                        await github.graphql(`
+                          mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $singleSelectOptionId: String!) {
+                            updateProjectV2ItemFieldValue(input: {
+                              projectId: $projectId,
+                              itemId: $itemId,
+                              fieldId: $fieldId,
+                              value: {
+                                singleSelectOptionId: $singleSelectOptionId
+                              }
+                            }) {
+                              projectV2Item {
+                                id
+                              }
+                            }
+                          }
+                        `, {
+                          projectId: studyProjectId,
+                          itemId: itemId,
+                          fieldId: statusField.id,
+                          singleSelectOptionId: preparationOption.id
+                        });
+                        
+                        console.log(`   ✅ Set Data Partner Status field to "Preparation"`);
+                      } else {
+                        console.log(`   ⚠️  "Preparation" option not found in Data Partner Status field`);
+                      }
+                    } else {
+                      console.log(`   ⚠️  Data Partner Status field not found in project`);
+                    }
+                  } catch (fieldError) {
+                    console.log(`   ❌ Failed to set Data Partner Status field: ${fieldError.message}`);
+                  }
+                  
                 } catch (projectError) {
                   console.log(`   ❌ Failed to add to project: ${projectError.message}`);
                 }
