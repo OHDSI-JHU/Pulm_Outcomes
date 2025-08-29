@@ -18,9 +18,10 @@ Stanford Medicine,Alice Davis,adavis
 When you commit changes to `data_partners.csv`, the system will automatically:
 - Create a new GitHub Issue for each data partner (if it doesn't exist)
 - Title the issue with the Site Name
-- Add the `data-partner` label
+- Add the `data-partner` and `status:preparation` labels
 - Assign the issue to the Contact GitHub Username
 - Set initial status to "Preparation"
+- Add the issue to the study's project (if a project exists)
 
 ### 3. Data Partner Issue Format
 Each Data Partner Issue includes:

@@ -92,6 +92,38 @@ runs:
           let issuesCreated = 0;
           let issuesUpdated = 0;
           
+          // Find the study project ID by looking for Projects V2 linked to this repo
+          let studyProjectId = null;
+          try {
+            const projectsQuery = await github.graphql(`
+              query($owner: String!, $repo: String!) {
+                repository(owner: $owner, name: $repo) {
+                  projectsV2(first: 5) {
+                    nodes {
+                      id
+                      title
+                      url
+                    }
+                  }
+                }
+              }
+            `, {
+              owner: repoOwner,
+              repo: repoName
+            });
+            
+            if (projectsQuery.repository.projectsV2.nodes.length > 0) {
+              // Use the first project found (should be the study project)
+              studyProjectId = projectsQuery.repository.projectsV2.nodes[0].id;
+              const projectTitle = projectsQuery.repository.projectsV2.nodes[0].title;
+              console.log(`✅ Found study project: ${projectTitle} (ID: ${studyProjectId})`);
+            } else {
+              console.log(`⚠️  No Projects V2 found for repository ${repoOwner}/${repoName}`);
+            }
+          } catch (projectError) {
+            console.log(`⚠️  Could not query repository projects: ${projectError.message}`);
+          }
+          
           // Process each data partner
           for (const partner of partners) {
             const issueTitle = partner.site_name;
@@ -157,7 +189,36 @@ runs:
               
               console.log(`   ✅ Created issue: ${issueResponse.data.html_url}`);
               
-              // Note: Project integration is handled by the study's existing project workflows
+              // Add issue to study project if found
+              if (studyProjectId) {
+                try {
+                  console.log(`   🔄 Adding to project: ${studyProjectId}`);
+                  
+                  const addResult = await github.graphql(`
+                    mutation($projectId: ID!, $contentId: ID!) {
+                      addProjectV2ItemById(input: {
+                        projectId: $projectId,
+                        contentId: $contentId
+                      }) {
+                        item {
+                          id
+                        }
+                      }
+                    }
+                  `, {
+                    projectId: studyProjectId,
+                    contentId: issueResponse.data.node_id
+                  });
+                  
+                  const itemId = addResult.addProjectV2ItemById.item.id;
+                  console.log(`   ✅ Added to project successfully (Item ID: ${itemId})`);
+                  
+                } catch (projectError) {
+                  console.log(`   ❌ Failed to add to project: ${projectError.message}`);
+                }
+              } else {
+                console.log(`   ℹ️  No project found, skipping project assignment`);
+              }
               
               issuesCreated++;
             }
