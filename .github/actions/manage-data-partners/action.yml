@@ -151,7 +151,7 @@ runs:
               '',
               '---',
               '',
-              '*This is a Data Partner tracking issue. Status changes will be monitored to track partnership progress.*'
+              '*This is a Data Partner tracking issue used by your Study Lead to monitor Network Execution.*'
             ].join('\n');
 
             if (existingIssue) {
