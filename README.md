@@ -1,4 +1,4 @@
-[Study title]
+{{STUDY_TITLE}}
 =============
 
 <img src="https://img.shields.io/badge/Study%20Status-Repo%20Created-lightgray.svg" alt="Study Status: Repo Created">
@@ -6,10 +6,10 @@
 - Analytics use case(s): **-**
 - Study type: **-**
 - Tags: **-**
-- Study lead: **-**
+- Study lead: **{{LEAD_NAME}}**
 - Study lead forums tag: **[[Lead tag]](https://forums.ohdsi.org/u/[Lead tag])**
-- Study start date: **-**
-- Study end date: **-**
+- Study start date: **{{START_DATE}}**
+- Study end date: **{{TARGET_DATE}}**
 - Protocol: **-**
 - Publications: **-**
 - Results explorer: **-**
