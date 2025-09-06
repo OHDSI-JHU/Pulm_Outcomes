@@ -368,10 +368,57 @@ jobs:
                 optionId: objectiveOption.id
               });
               
-              // Add a comment to the Factory issue
+              // Update Factory issue body with completion dates
+              console.log('Updating Factory issue body with Study History...');
+              
+              // Get current Factory issue body
+              const currentFactoryIssue = await github.rest.issues.get({
+                owner: factoryOwner,
+                repo: 'Factory',
+                issue_number: parseInt(factoryIssueNumber)
+              });
+              
+              let updatedBody = currentFactoryIssue.data.body;
+              
+              // Update Study History table with completion dates
               const closedIssues = statusIssues.data.filter(issue => issue.state === 'closed');
               
-              const commentBody = `🎯 **Objective Updated:** ${currentObjective}\n\n**Study Progress Update from [${studyRepo}](https://github.com/${studyRepo}):**\n- Completed milestones: ${closedIssues.length}/${statusIssues.data.length}\n- Current objective: ${currentObjective}\n\n_Objective field updated automatically by the study tracking system._`;
+              for (const configIssue of sortedIssues) {
+                const matchingIssue = statusIssues.data.find(issue => 
+                  issue.title === configIssue.title || 
+                  issue.title.includes(configIssue.factory_objective)
+                );
+                
+                if (matchingIssue && matchingIssue.state === 'closed') {
+                  const completionDate = new Date(matchingIssue.closed_at).toLocaleDateString();
+                  const objectiveName = configIssue.factory_objective;
+                  
+                  // Update the table row for this objective
+                  const oldRow = `| ${objectiveName} | — |`;
+                  const newRow = `| [${objectiveName}](${matchingIssue.html_url}) | ${completionDate} |`;
+                  
+                  updatedBody = updatedBody.replace(oldRow, newRow);
+                  
+                  // Also handle case where objective might already be linked
+                  const linkedOldRow = `| [${objectiveName}](${matchingIssue.html_url}) | — |`;
+                  const linkedNewRow = `| [${objectiveName}](${matchingIssue.html_url}) | ${completionDate} |`;
+                  
+                  updatedBody = updatedBody.replace(linkedOldRow, linkedNewRow);
+                }
+              }
+              
+              // Update the Factory issue body
+              await github.rest.issues.update({
+                owner: factoryOwner,
+                repo: 'Factory',
+                issue_number: parseInt(factoryIssueNumber),
+                body: updatedBody
+              });
+              
+              console.log('✅ Factory issue body updated with completion dates');
+              
+              // Add a comment to the Factory issue
+              const commentBody = `🎯 **Objective Updated:** ${currentObjective}\n\n**Study Progress Update from [${studyRepo}](https://github.com/${studyRepo}):**\n- Completed milestones: ${closedIssues.length}/${statusIssues.data.length}\n- Current objective: ${currentObjective}\n\n_Objective field and Study History updated automatically by the study tracking system._`;
               
               await github.rest.issues.createComment({
                 owner: factoryOwner,
