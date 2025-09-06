@@ -5,16 +5,12 @@
 1. **Add data partners** to `data_partners.csv`:
    ```csv
    Site Name,Contact Name,Contact GitHub Username
-   Johns Hopkins University,Jane Smith,janesmith
-   Mayo Clinic,Bob Johnson,bjohnson
+   Site 1,Person A,PersonAUsername
+   Site 2,Person B,PersonBUsername
+   Site 3,Person C,PersonCUsername
+   ...,...,...
    ```
 
 2. **Commit the file** - Issues are created automatically
 
-3. **Update status** via Actions → "Update Data Partner Status"
-
-## Statuses
-
-- **Preparation** - Getting started
-- **Analysis** - Actively working  
-- **Results** - Finishing up
+3. **Track Data Partner Progress** - Use a 'Data Partner' project view to manage Network Execution 
