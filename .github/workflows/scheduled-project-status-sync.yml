@@ -1,8 +1,9 @@
-# Scheduled Project Status Sync Workflow
+# Scheduled Data Partner Status Tracking Workflow
 # Automatically syncs Data Partner Status project field with issue labels every 15 minutes
+# Also updates status history within issue body when changes are detected
 # Per briefing/workflows/reusable.md and briefing/security/best-practices.md
 
-name: Scheduled Project Status Sync
+name: Scheduled Data Partner Status Tracking
 
 on:
   schedule:
@@ -160,11 +161,90 @@ jobs:
                   continue;
                 }
                 
-                // Update labels
-                console.log(`🔄 Updating issue #${issueNumber} labels:`);
+                // Update labels and status history
+                console.log(`🔄 Updating issue #${issueNumber} status and labels:`);
                 console.log(`   Project status: ${projectStatus}`);
                 console.log(`   Current labels: ${currentStatusLabels.join(', ') || 'none'}`);
                 console.log(`   Target label: ${targetLabel}`);
+                
+                // Get current issue details for status history update
+                const currentIssue = await github.rest.issues.get({
+                  owner: repoOwner,
+                  repo: repoName,
+                  issue_number: issueNumber
+                });
+                
+                const currentBody = currentIssue.data.body || '';
+                const currentDate = new Date().toISOString().split('T')[0];
+                
+                // Parse current status and calculate days
+                let currentStatus = 'Preparation'; // default
+                let daysInPreviousStatus = 0;
+                
+                // Extract current status from body
+                const statusMatch = currentBody.match(/Current Status:\*\* (.+)/);
+                if (statusMatch) {
+                  currentStatus = statusMatch[1].trim();
+                }
+                
+                // Extract last status change date from status history
+                const historyMatch = currentBody.match(/- (\d{4}-\d{2}-\d{2}): .+ status "([^"]+)"/g);
+                if (historyMatch && historyMatch.length > 0) {
+                  const lastEntry = historyMatch[historyMatch.length - 1];
+                  const lastDateMatch = lastEntry.match(/- (\d{4}-\d{2}-\d{2})/);
+                  if (lastDateMatch) {
+                    const statusDate = lastDateMatch[1];
+                    const lastStatusDate = new Date(statusDate);
+                    const today = new Date(currentDate);
+                    daysInPreviousStatus = Math.floor((today - lastStatusDate) / (1000 * 60 * 60 * 24));
+                  }
+                }
+                
+                // Only update if status actually changed
+                if (currentStatus !== projectStatus) {
+                  // Update the issue body with new status and history
+                  let updatedBody = currentBody;
+                  
+                  // Update current status
+                  updatedBody = updatedBody.replace(
+                    /Current Status:\*\* .+/,
+                    `Current Status:** ${projectStatus}`
+                  );
+                  
+                  // Update days in status to 0 (just changed)
+                  updatedBody = updatedBody.replace(
+                    /Days in Status: \d+/,
+                    'Days in Status: 0'
+                  );
+                  
+                  // Add to status history
+                  const newHistoryEntry = `- ${currentDate}: Changed status from "${currentStatus}" to "${projectStatus}" (${daysInPreviousStatus} days in previous status)`;
+                  
+                  if (updatedBody.includes('**Status History**')) {
+                    // Add new entry to existing history
+                    updatedBody = updatedBody.replace(
+                      /(\*\*Status History\*\*\n)((?:- .+\n)*)/,
+                      `$1$2${newHistoryEntry}\n`
+                    );
+                  } else {
+                    // Add new status history section
+                    const historySection = `\n**Status History**\n${newHistoryEntry}\n`;
+                    updatedBody = updatedBody.replace(
+                      /---\n\n\*This is a Data Partner tracking issue/,
+                      `${historySection}\n---\n\n*This is a Data Partner tracking issue`
+                    );
+                  }
+                  
+                  // Update the issue body
+                  await github.rest.issues.update({
+                    owner: repoOwner,
+                    repo: repoName,
+                    issue_number: issueNumber,
+                    body: updatedBody
+                  });
+                  
+                  console.log(`   ✅ Updated status history: ${currentStatus} -> ${projectStatus} (${daysInPreviousStatus} days)`);
+                }
                 
                 // Remove old status labels and add new one
                 const labelsToKeep = currentLabels.filter(label => 
