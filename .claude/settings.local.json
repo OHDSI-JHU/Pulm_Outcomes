@@ -8,7 +8,9 @@
       "Bash(git add:*)",
       "WebSearch",
       "Bash(git push:*)",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "Read(//mnt/c/Users/soreill5/Factory/**)",
+      "Bash(mkdir:*)"
     ],
     "deny": [],
     "ask": []
