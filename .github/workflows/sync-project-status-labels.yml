@@ -1,0 +1,211 @@
+# Sync Project Status to Issue Labels Workflow
+# Manual workflow to sync Data Partner Status project field with issue labels
+# Per briefing/workflows/reusable.md and briefing/security/best-practices.md
+
+name: Sync Project Status Labels
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Data Partner Issue number to sync'
+        required: true
+        type: string
+
+# Minimal permissions
+permissions:
+  contents: read
+  issues: write
+  repository-projects: read
+
+jobs:
+  sync-status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync Project Field to Labels
+        id: sync_labels
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.ORG_ADMIN_TOKEN }}
+          script: |
+            const issueNumber = parseInt("${{ inputs.issue_number }}");
+            const repoOwner = context.repo.owner;
+            const repoName = context.repo.repo;
+            
+            console.log(`Syncing project status for issue #${issueNumber}`);
+            
+            try {
+              // Get the issue
+              const issue = await github.rest.issues.get({
+                owner: repoOwner,
+                repo: repoName,
+                issue_number: issueNumber
+              });
+              
+              // Check if this is a data-partner issue
+              const isDataPartnerIssue = issue.data.labels.some(label => 
+                label.name === 'data-partner'
+              );
+              
+              if (!isDataPartnerIssue) {
+                console.log(`❌ Issue #${issueNumber} is not a data-partner issue`);
+                core.setFailed(`Issue is not a data-partner issue`);
+                return;
+              }
+              
+              // Find projects associated with this repository
+              const projectsQuery = await github.graphql(`
+                query($owner: String!, $repo: String!) {
+                  repository(owner: $owner, name: $repo) {
+                    projectsV2(first: 5) {
+                      nodes {
+                        id
+                        title
+                        url
+                        items(first: 100) {
+                          nodes {
+                            id
+                            content {
+                              ... on Issue {
+                                id
+                                number
+                              }
+                            }
+                            fieldValues(first: 20) {
+                              nodes {
+                                ... on ProjectV2ItemFieldSingleSelectValue {
+                                  name
+                                  field {
+                                    ... on ProjectV2SingleSelectField {
+                                      name
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              `, {
+                owner: repoOwner,
+                repo: repoName
+              });
+              
+              console.log(`Found ${projectsQuery.repository.projectsV2.nodes.length} projects`);
+              
+              let projectStatus = null;
+              let projectFound = false;
+              
+              // Look for this issue in any of the projects
+              for (const project of projectsQuery.repository.projectsV2.nodes) {
+                console.log(`Checking project: ${project.title}`);
+                
+                for (const item of project.items.nodes) {
+                  if (item.content && item.content.number === issueNumber) {
+                    projectFound = true;
+                    console.log(`Found issue #${issueNumber} in project: ${project.title}`);
+                    
+                    // Look for Data Partner Status field
+                    for (const fieldValue of item.fieldValues.nodes) {
+                      if (fieldValue.field && fieldValue.field.name === 'Data Partner Status') {
+                        projectStatus = fieldValue.name;
+                        console.log(`Current project status: ${projectStatus}`);
+                        break;
+                      }
+                    }
+                    break;
+                  }
+                }
+                
+                if (projectFound) break;
+              }
+              
+              if (!projectFound) {
+                console.log(`❌ Issue #${issueNumber} not found in any projects`);
+                core.setFailed(`Issue not found in any projects`);
+                return;
+              }
+              
+              if (!projectStatus) {
+                console.log(`❌ No Data Partner Status field found for issue #${issueNumber}`);
+                core.setFailed(`No Data Partner Status field found`);
+                return;
+              }
+              
+              // Map project status to labels
+              const statusLabels = {
+                'Preparation': 'status:preparation',
+                'Analysis': 'status:analysis', 
+                'Results': 'status:results'
+              };
+              
+              const targetLabel = statusLabels[projectStatus];
+              if (!targetLabel) {
+                console.log(`❌ Unknown project status: ${projectStatus}`);
+                core.setFailed(`Unknown project status: ${projectStatus}`);
+                return;
+              }
+              
+              // Get current labels
+              const currentLabels = issue.data.labels.map(label => label.name);
+              const currentStatusLabels = Object.values(statusLabels).filter(label => 
+                currentLabels.includes(label)
+              );
+              
+              console.log(`Current status labels: ${currentStatusLabels.join(', ')}`);
+              console.log(`Target label: ${targetLabel}`);
+              
+              if (currentStatusLabels.includes(targetLabel)) {
+                console.log(`✅ Issue already has correct status label: ${targetLabel}`);
+                return;
+              }
+              
+              // Remove old status labels and add new one
+              const labelsToKeep = currentLabels.filter(label => 
+                !Object.values(statusLabels).includes(label)
+              );
+              const newLabels = [...labelsToKeep, targetLabel];
+              
+              await github.rest.issues.update({
+                owner: repoOwner,
+                repo: repoName,
+                issue_number: issueNumber,
+                labels: newLabels
+              });
+              
+              console.log(`✅ Updated issue labels - added: ${targetLabel}`);
+              if (currentStatusLabels.length > 0) {
+                console.log(`   Removed: ${currentStatusLabels.join(', ')}`);
+              }
+              
+              // Set outputs for potential status update
+              core.setOutput('status_changed', 'true');
+              core.setOutput('new_status', projectStatus);
+              core.setOutput('new_label', targetLabel);
+              
+            } catch (error) {
+              console.error('Error syncing project status:', error);
+              core.setFailed(`Failed to sync status: ${error.message}`);
+            }
+
+      - name: Update Data Partner Status
+        if: steps.sync_labels.outputs.status_changed == 'true'
+        uses: ./.github/actions/update-data-partner-status
+        with:
+          issue_number: ${{ inputs.issue_number }}
+          new_status: ${{ steps.sync_labels.outputs.new_status }}
+          org_token: ${{ secrets.ORG_ADMIN_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "## ✅ Project Status Synced"
+          echo ""
+          echo "**Issue:** #${{ inputs.issue_number }}"
+          echo "**Project Status:** ${{ steps.sync_labels.outputs.new_status }}"
+          echo "**Label Added:** ${{ steps.sync_labels.outputs.new_label }}"
