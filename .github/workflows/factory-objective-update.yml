@@ -390,7 +390,7 @@ jobs:
                 );
                 
                 if (matchingIssue && matchingIssue.state === 'closed') {
-                  const completionDate = new Date(matchingIssue.closed_at).toLocaleDateString();
+                  const completionDate = new Date(matchingIssue.closed_at).toISOString().split('T')[0];
                   const objectiveName = configIssue.factory_objective;
                   
                   // Update the table row for this objective
