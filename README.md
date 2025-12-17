@@ -45,7 +45,7 @@ Understanding the landscape of AECOPD treatment, such as acute medication use, o
 | Results explorer | A hyperlink to a web app (e.g. a Shiny app) where the results of the study can be explored. |
 | Study start date | October 17, 2025|
 | Study end date | To be diceded | 
-| Protocol | LINK. | 
+| Protocol | [LINK](https://github.com/OHDSI-JHU/Pulm_Outcomes/blob/main/Document/ResearchProtocol.pdf) | 
 | Publications | N/A. | 
 
 
@@ -96,6 +96,7 @@ Understanding the landscape of AECOPD treatment, such as acute medication use, o
 8.	Roberts CM, Lopez-Campos JL, Pozo-Rodriguez F, Hartl S; European COPD Audit team. European hospital adherence to GOLD recommendations for chronic obstructive pulmonary disease (COPD) exacerbation admissions. Thorax. 2013 Dec;68(12):1169-71. doi: 10.1136/thoraxjnl-2013-203465. Epub 2013 Jun 1. PMID: 23729193.
 9.	Lindenauer PK, Stefan MS, Shieh MS, Pekow PS, Rothberg MB, Hill NS. Hospital patterns of mechanical ventilation for patients with exacerbations of COPD. Ann Am Thorac Soc. 2015 Mar;12(3):402-9. doi: 10.1513/AnnalsATS.201407-293OC. PMID: 25654431; PMCID: PMC4418316.
 10.	Jacobs DM, Noyes K, Zhao J, Gibson W, Murphy TF, Sethi S, Ochs-Balcom HM. Early Hospital Readmissions after an Acute Exacerbation of Chronic Obstructive Pulmonary Disease in the Nationwide Readmissions Database. Ann Am Thorac Soc. 2018 Jul;15(7):837-845. doi: 10.1513/AnnalsATS.201712-913OC. PMID: 29611719; PMCID: PMC6207114.
+
 
 
 
