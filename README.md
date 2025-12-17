@@ -16,18 +16,10 @@
 **Description** </n>
 
 Chronic obstructive pulmonary disease (COPD) is a highly prevalent chronic respiratory disease worldwide and a major contributor to global morbidity and mortality.[1,2] COPD is characterized by persistent respiratory symptoms and chronic airflow limitation.[3] It also imposes substantial health-system burden through frequent acute-care utilization and hospital-based treatment.[2,4,5] Despite advances in chronic management, acute exacerbations of COPD (AECOPD) commonly prompt emergency department (ED) evaluation and often lead to hospitalization.[4,5] These exacerbations are pivotal events in the disease course and can require high-cost and invasive interventions, including non-invasive ventilation and endotracheal intubation with invasive mechanical ventilation in severe cases.[5–7]
-Current clinical guidance (e.g., GOLD) recommends AECOPD management centered on short-acting bronchodilators, systemic corticosteroids, and appropriately titrated oxygen therapy.[3]
 
-Understanding the landscape of AECOPD treatment, such as acute medication use, oxygen requirements, escalation of respiratory support, and discharge management, can identify disparities and opportunities for quality improvement.[8–10] Multi-institution comparisons have been used to highlight variation in care processes and outcomes and can serve as a foundation for designing effective interventions and future predictive or population-level analyses.[8–10] 
-
-This project aims at:
-
-1) characterizing the demographic and clinical features of adults presenting to the emergency department with COPD exacerbation.
-2) describing temporal care pathways following ED presentation for COPD exacerbation, including escalation of respiratory support, ICU transfer, discharge disposition, and 30-day readmission.
-3) comparing care pathways and outcomes between a major academic hospital in the United States and a private non-profit multi-specialty hospital in Brazil.
+Understanding the landscape of AECOPD treatment, such as acute medication use, oxygen requirements, escalation of respiratory support, and discharge management, can identify disparities and opportunities for quality improvement.[8–10] Multi-institution comparisons have been used to highlight variation in care processes and outcomes and can serve as a foundation for designing effective interventions and future predictive or population-level analyses.[8–10] This **project aims at charaterizing adults presenting to the emergency department with CPOD exacerbation, describing their treatment pattern, and compare the difference between a major academic hospital in the United States and a private non-profit multi-specialty hospital in Brazil**.
 
        
-
 
 ## Elements in the README template
 
@@ -104,6 +96,7 @@ This project aims at:
 8.	Roberts CM, Lopez-Campos JL, Pozo-Rodriguez F, Hartl S; European COPD Audit team. European hospital adherence to GOLD recommendations for chronic obstructive pulmonary disease (COPD) exacerbation admissions. Thorax. 2013 Dec;68(12):1169-71. doi: 10.1136/thoraxjnl-2013-203465. Epub 2013 Jun 1. PMID: 23729193.
 9.	Lindenauer PK, Stefan MS, Shieh MS, Pekow PS, Rothberg MB, Hill NS. Hospital patterns of mechanical ventilation for patients with exacerbations of COPD. Ann Am Thorac Soc. 2015 Mar;12(3):402-9. doi: 10.1513/AnnalsATS.201407-293OC. PMID: 25654431; PMCID: PMC4418316.
 10.	Jacobs DM, Noyes K, Zhao J, Gibson W, Murphy TF, Sethi S, Ochs-Balcom HM. Early Hospital Readmissions after an Acute Exacerbation of Chronic Obstructive Pulmonary Disease in the Nationwide Readmissions Database. Ann Am Thorac Soc. 2018 Jul;15(7):837-845. doi: 10.1513/AnnalsATS.201712-913OC. PMID: 29611719; PMCID: PMC6207114.
+
 
 
 
